@@ -2,7 +2,6 @@
 use std::io::{self, Write};
 
 fn main() {
-    // Uncomment this block to pass the first stage
     print!("$ ");
     io::stdout().flush().unwrap();
 
@@ -11,7 +10,7 @@ fn main() {
 
     while input != "" {
         io::stdin().read_line(&mut input).unwrap();
-        println!("$ {}: command not found", input);
+        print!("$ {}: command not found", input);
     }
 
 
