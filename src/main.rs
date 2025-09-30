@@ -10,15 +10,16 @@ fn main() {
     // let flag: bool = true;
 
     loop {
-
         io::stdin().read_line(&mut input).unwrap();
-        let input = input.trim();
+        let input_trimmed = input.trim();
 
-        if input == "" {
-            println!("$ ");
-        } else {
-            println!("{input}: command not found");
+        if input_trimmed != "" {
+            println!("{input_trimmed}: command not found");
         }
+
+        print!("$ ");
+        io::stdout().flush().unwrap();
+        input.clear()
 
     }
 
