@@ -20,7 +20,7 @@ fn main() {
     loop {
         io::stdin().read_line(&mut input).unwrap();
         let input = input.trim();
-        println!("$ {input}: command not found");
+        println!("{input}: command not found");
     }
 
 
