@@ -7,13 +7,21 @@ fn main() {
 
     // Wait for user input
     let mut input = String::new();
+    // let flag: bool = true;
 
-    while input != "" {
+    // while flag == true {
+
+
+    //     io::stdin().read_line(&mut input).unwrap();
+    //     let input = input.trim();
+    //     println!("$ {input}: command not found");
+    // }
+
+    loop {
         io::stdin().read_line(&mut input).unwrap();
         let input = input.trim();
         println!("$ {input}: command not found");
     }
-
 
 
 }
