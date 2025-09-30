@@ -10,6 +10,7 @@ fn main() {
 
     while input != "" {
         io::stdin().read_line(&mut input).unwrap();
+        let input = input.trim();
         print!("$ {input}: command not found");
     }
 
