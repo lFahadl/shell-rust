@@ -13,18 +13,22 @@ fn main() {
         io::stdin().read_line(&mut input).unwrap();
         let input_trimmed = input.trim();
 
-        let cmd_parts: Vec<&str> = input.split(" ").collect();
-
-        let _cmd = cmd_parts[0];
-        // let _args = cmd_parts[1];
+        // let cmd_parts: Vec<&str> = input.split(" ").collect();
+        let mut _parts = input.splitn(2, ' ');
+        let _cmd = _parts.next().unwrap_or("");
+        let _args = _parts.next().unwrap_or("");
 
 
 
         if _cmd == "exit" {
             break;
+        } else if _cmd == "echo" {
+            print!("{_args}");
         } else if input_trimmed != "" {
             println!("{input_trimmed}: command not found");
         }
+
+
 
         print!("$ ");
         io::stdout().flush().unwrap();
