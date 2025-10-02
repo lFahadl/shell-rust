@@ -4,6 +4,8 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::os::unix::fs::PermissionsExt;
+use std::process::Command;
+
 
 
 
@@ -17,60 +19,67 @@ fn main() {
 
 
     loop {
-        let mut flag = false;
         io::stdin().read_line(&mut input).unwrap();
         let input_trimmed = input.trim();
 
         // let cmd_parts: Vec<&str> = input.split(" ").collect();
         let mut _parts = input.splitn(2, ' ');
         let _cmd = _parts.next().unwrap_or("");
-        let _args = _parts.next().unwrap_or("").trim();
+        let args = _parts.next().unwrap_or("").trim();
 
 
         if _cmd == "exit" {
             break;
         } else if _cmd == "echo" {
-            println!("{_args}");
+            println!("{args}");
         } else if _cmd == "type" {
 
-            if valid_commands.contains(&_args) {
-                flag = true;
-                println!("{_args} is a shell builtin")
-            } else if let Ok(path_var) = env::var("PATH") {
-                for mut file_path in env::split_paths(&path_var) {
-
-                    file_path.push(_args);
-
-                    if Path::new(&file_path).exists() {
-
-                        match fs::metadata(&file_path) {
-                            Ok(md) => {
-                                let permissions = md.permissions();
-                                let mode = permissions.mode();
-                                let owner_execute = (mode & 0o100) != 0;
-
-                                if owner_execute {
-                                    println!("{_args} is {}", file_path.display());
-                                    flag = true;
-                                    break;
-                                }
-                            }
-                            Err(_) => continue,  // file doesn't exist, try next path
-                        }
-                    }
-                }
+            if valid_commands.contains(&args) {
+                println!("{args} is a shell builtin")
+            } else if let Some(executable_path) = find_executable(args) {
+                println!("{args} is {executable_path}");
+            } else {
+                println!("{args}: not found");
             }
+        } else if find_executable(_cmd).is_some() {
 
-            if !flag {
-                println!("{_args}: not found");
-            }
-        } else if input_trimmed != "" {
-            println!("{input_trimmed}: command not found");
+            let args_list: Vec<&str> = args.split(' ').collect();
+
+            let output = Command::new(_cmd)
+                                    .args(&args_list)
+                                    .output()
+                                    .expect("failed to execute process");
+            // println!("\n{:?}\n", args_list);
+
+            print!("{}", String::from_utf8_lossy(&output.stdout));
+            io::stdout().flush().unwrap();
         }
 
+
+        else if input_trimmed != "" {
+            println!("{input_trimmed}: command not found");
+        }
 
         print!("$ ");
         io::stdout().flush().unwrap();
         input.clear();
     }
 }
+
+
+fn find_executable(command: &str) -> Option<String> {
+      let path_var = env::var("PATH").ok()?;
+
+      for mut file_path in env::split_paths(&path_var) {
+          file_path.push(command);
+
+          if Path::new(&file_path).exists() {
+              if let Ok(md) = fs::metadata(&file_path) {
+                  if (md.permissions().mode() & 0o100) != 0 {
+                      return Some(file_path.display().to_string());
+                  }
+              }
+          }
+      }
+      None
+  }
