@@ -15,7 +15,7 @@ fn main() {
 
     // Wait for user input
     let mut input = String::new();
-    let valid_commands = ["echo", "exit", "type"];
+    let valid_commands = ["echo", "exit", "type", "pwd"];
 
 
     loop {
@@ -24,7 +24,7 @@ fn main() {
 
         // let cmd_parts: Vec<&str> = input.split(" ").collect();
         let mut _parts = input.splitn(2, ' ');
-        let _cmd = _parts.next().unwrap_or("");
+        let _cmd = _parts.next().unwrap_or("").trim();
         let args = _parts.next().unwrap_or("").trim();
 
 
@@ -41,6 +41,15 @@ fn main() {
             } else {
                 println!("{args}: not found");
             }
+        } else if _cmd == "pwd" {
+            let path = match env::current_dir() {
+                Ok(p) => p,
+                Err(e) => {
+                    println!("Error: {}", e);
+                    return
+                },
+            };
+            println!("{}", path.display());
         } else if find_executable(_cmd).is_some() {
 
             let args_list: Vec<&str> = args.split(' ').collect();
@@ -53,10 +62,7 @@ fn main() {
 
             print!("{}", String::from_utf8_lossy(&output.stdout));
             io::stdout().flush().unwrap();
-        }
-
-
-        else if input_trimmed != "" {
+        } else if input_trimmed != "" {
             println!("{input_trimmed}: command not found");
         }
 
