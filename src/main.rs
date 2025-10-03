@@ -15,42 +15,22 @@ fn main() {
 
     // Wait for user input
     let mut input = String::new();
-    let valid_commands = ["echo", "exit", "type", "pwd"];
 
 
     loop {
         io::stdin().read_line(&mut input).unwrap();
-        let input_trimmed = input.trim();
 
         // let cmd_parts: Vec<&str> = input.split(" ").collect();
         let mut _parts = input.splitn(2, ' ');
-        let _cmd = _parts.next().unwrap_or("").trim();
+        let cmd = _parts.next().unwrap_or("").trim();
         let args = _parts.next().unwrap_or("").trim();
+        let parsed_args = parse_command_line(&args);
+        let valid_commands = ["echo", "exit", "type", "pwd"];
 
-
-        if _cmd == "exit" {
+        if cmd == "" {
+        } else if cmd == "exit" {
             break;
-        } else if _cmd == "echo" {
-            println!("{args}");
-        } else if _cmd == "type" {
-
-            if valid_commands.contains(&args) {
-                println!("{args} is a shell builtin")
-            } else if let Some(executable_path) = find_executable(args) {
-                println!("{args} is {executable_path}");
-            } else {
-                println!("{args}: not found");
-            }
-        } else if _cmd == "pwd" {
-            let path = match env::current_dir() {
-                Ok(p) => p,
-                Err(e) => {
-                    println!("Error: {}", e);
-                    return
-                },
-            };
-            println!("{}", path.display());
-        } else if _cmd == "cd" {
+        } else if cmd == "cd" {
 
             let target = if args == "~" {
                 match env::var("HOME") {
@@ -67,22 +47,30 @@ fn main() {
             if let Err(_) = env::set_current_dir(&target) {
                 eprintln!("cd: {}: No such file or directory", target);
             }
+        } else if cmd == "type" {
 
+            if valid_commands.contains(&args) {
+                println!("{args} is a shell builtin")
+            } else if let Some(executable_path) = find_executable(args) {
+                println!("{args} is {executable_path}");
+            } else {
+                println!("{args}: not found");
+            }
+        } else if find_executable(cmd).is_some() {
 
-        } else if find_executable(_cmd).is_some() {
+            let output = Command::new(cmd)
+                                    .args(&parsed_args)
+                                    .output();
 
-            let args_list: Vec<&str> = args.split(' ').collect();
-
-            let output = Command::new(_cmd)
-                                    .args(&args_list)
-                                    .output()
-                                    .expect("failed to execute process");
-            // println!("\n{:?}\n", args_list);
-
-            print!("{}", String::from_utf8_lossy(&output.stdout));
-            io::stdout().flush().unwrap();
-        } else if input_trimmed != "" {
-            println!("{input_trimmed}: command not found");
+            match output {
+                Ok(output) => {
+                    print!("{}", String::from_utf8_lossy(&output.stdout));
+                    io::stdout().flush().unwrap();
+                },
+                Err(e) => eprintln!("{e}")
+            }
+        } else if cmd != "" {
+            println!("{cmd}: command not found");
         }
 
         print!("$ ");
@@ -108,3 +96,32 @@ fn find_executable(command: &str) -> Option<String> {
       }
       None
   }
+
+
+fn parse_command_line(input: &str) -> Vec<String> {
+    let mut arguments = Vec::new();
+    let mut current_arg = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    for ch in input.chars() {
+        if ch == ' ' && !in_single_quote && !in_double_quote {
+            if !current_arg.is_empty() {
+                arguments.push(current_arg.clone());
+                current_arg.clear();
+            }
+        } else if ch == '\'' && !in_double_quote {
+            in_single_quote = !in_single_quote;
+        } else if ch == '"' && !in_single_quote {
+            in_double_quote = !in_double_quote;
+        } else {
+            current_arg.push(ch);
+        }
+    }
+
+    if !current_arg.is_empty() {
+        arguments.push(current_arg);
+    }
+
+    arguments
+}
