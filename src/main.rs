@@ -51,12 +51,24 @@ fn main() {
             };
             println!("{}", path.display());
         } else if _cmd == "cd" {
-            match env::set_current_dir(&args) {
-                Ok(()) => {},
-                Err(e) => {
-                    eprintln!("cd: {args}: No such file or directory");
-                },
+
+            let target = if args == "~" {
+                match env::var("HOME") {
+                    Ok(h) => h,
+                    Err(_) => {
+                        eprintln!("cd: HOME not set");
+                        continue;
+                    }
+                }
+            } else {
+                args.to_string()
             };
+
+            if let Err(_) = env::set_current_dir(&target) {
+                eprintln!("cd: {}: No such file or directory", target);
+            }
+
+
         } else if find_executable(_cmd).is_some() {
 
             let args_list: Vec<&str> = args.split(' ').collect();
