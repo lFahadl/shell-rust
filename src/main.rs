@@ -13,14 +13,12 @@ fn main() {
     print!("$ ");
     io::stdout().flush().unwrap();
 
-    // Wait for user input
     let mut input = String::new();
 
 
     loop {
         io::stdin().read_line(&mut input).unwrap();
 
-        // let cmd_parts: Vec<&str> = input.split(" ").collect();
         let mut _parts = input.splitn(2, ' ');
         let cmd = _parts.next().unwrap_or("").trim();
         let args = _parts.next().unwrap_or("").trim();
@@ -103,9 +101,14 @@ fn parse_command_line(input: &str) -> Vec<String> {
     let mut current_arg = String::new();
     let mut in_single_quote = false;
     let mut in_double_quote = false;
+    let mut escape_next = false;
 
     for ch in input.chars() {
-        if ch == ' ' && !in_single_quote && !in_double_quote {
+
+        if escape_next {
+            current_arg.push(ch);
+            escape_next = !escape_next;
+        } else if ch == ' ' && !in_single_quote && !in_double_quote {
             if !current_arg.is_empty() {
                 arguments.push(current_arg.clone());
                 current_arg.clear();
@@ -114,6 +117,8 @@ fn parse_command_line(input: &str) -> Vec<String> {
             in_single_quote = !in_single_quote;
         } else if ch == '"' && !in_single_quote {
             in_double_quote = !in_double_quote;
+        } else if ch == '\\' && !in_single_quote && !in_double_quote {
+            escape_next = true;
         } else {
             current_arg.push(ch);
         }
