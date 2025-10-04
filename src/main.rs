@@ -101,14 +101,10 @@ fn parse_command_line(input: &str) -> Vec<String> {
     let mut current_arg = String::new();
     let mut in_single_quote = false;
     let mut in_double_quote = false;
-    let mut escape_next = false;
+    let mut chars = input.chars().peekable();
 
-    for ch in input.chars() {
-
-        if escape_next {
-            current_arg.push(ch);
-            escape_next = !escape_next;
-        } else if ch == ' ' && !in_single_quote && !in_double_quote {
+    while let Some(ch) = chars.next() {
+        if ch == ' ' && !in_single_quote && !in_double_quote {
             if !current_arg.is_empty() {
                 arguments.push(current_arg.clone());
                 current_arg.clear();
@@ -117,8 +113,25 @@ fn parse_command_line(input: &str) -> Vec<String> {
             in_single_quote = !in_single_quote;
         } else if ch == '"' && !in_single_quote {
             in_double_quote = !in_double_quote;
-        } else if ch == '\\' && !in_single_quote && !in_double_quote {
-            escape_next = true;
+        } else if ch == '\\' {
+            if in_single_quote {
+                current_arg.push(ch);
+            } else if in_double_quote {
+                if let Some(&next_ch) = chars.peek() {
+                    if next_ch == '\\' || next_ch == '"' || next_ch == '$' || next_ch == '`' {
+                        chars.next();
+                        current_arg.push(next_ch);
+                    } else {
+                        current_arg.push(ch);
+                    }
+                } else {
+                    current_arg.push(ch);
+                }
+            } else {
+                if let Some(next_ch) = chars.next() {
+                    current_arg.push(next_ch);
+                }
+            }
         } else {
             current_arg.push(ch);
         }
