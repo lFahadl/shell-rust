@@ -19,18 +19,23 @@ fn main() {
     loop {
         io::stdin().read_line(&mut input).unwrap();
 
-        let mut _parts = input.splitn(2, ' ');
-        let cmd = _parts.next().unwrap_or("").trim();
-        let args = _parts.next().unwrap_or("").trim();
-        let parsed_args = parse_command_line(&args);
+        let parsed = parse_command_line(input.trim());
         let valid_commands = ["echo", "exit", "type", "pwd"];
 
-        if cmd == "" {
-        } else if cmd == "exit" {
+        if parsed.is_empty() {
+            print!("$ ");
+            io::stdout().flush().unwrap();
+            input.clear();
+            continue;
+        }
+
+        let cmd = &parsed[0];
+        let args = &parsed[1..];
+
+        if cmd == "exit" {
             break;
         } else if cmd == "cd" {
-
-            let target = if args == "~" {
+            let target = if args.len() > 0 && args[0] == "~" {
                 match env::var("HOME") {
                     Ok(h) => h,
                     Err(_) => {
@@ -39,25 +44,28 @@ fn main() {
                     }
                 }
             } else {
-                args.to_string()
+                args[0].to_string()
             };
 
             if let Err(_) = env::set_current_dir(&target) {
                 eprintln!("cd: {}: No such file or directory", target);
             }
         } else if cmd == "type" {
-
-            if valid_commands.contains(&args) {
-                println!("{args} is a shell builtin")
-            } else if let Some(executable_path) = find_executable(args) {
-                println!("{args} is {executable_path}");
+            if args.is_empty() {
+                eprintln!("type: missing argument");
             } else {
-                println!("{args}: not found");
+                let arg = &args[0];
+                if valid_commands.contains(&arg.as_str()) {
+                    println!("{} is a shell builtin", arg);
+                } else if let Some(executable_path) = find_executable(arg) {
+                    println!("{} is {}", arg, executable_path);
+                } else {
+                    println!("{}: not found", arg);
+                }
             }
         } else if find_executable(cmd).is_some() {
-
             let output = Command::new(cmd)
-                                    .args(&parsed_args)
+                                    .args(args)
                                     .output();
 
             match output {
@@ -65,10 +73,10 @@ fn main() {
                     print!("{}", String::from_utf8_lossy(&output.stdout));
                     io::stdout().flush().unwrap();
                 },
-                Err(e) => eprintln!("{e}")
+                Err(e) => eprintln!("{}", e)
             }
-        } else if cmd != "" {
-            println!("{cmd}: command not found");
+        } else if !cmd.is_empty() {
+            println!("{}: command not found", cmd);
         }
 
         print!("$ ");
