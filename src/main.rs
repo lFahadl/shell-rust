@@ -1,20 +1,16 @@
-#[allow(unused_imports)]
-use std::io::{self, Write};
 use std::env;
 use std::fs;
-use std::path::Path;
+#[allow(unused_imports)]
+use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::process::Command;
-
-
-
 
 fn main() {
     print!("$ ");
     io::stdout().flush().unwrap();
 
     let mut input = String::new();
-
 
     loop {
         io::stdin().read_line(&mut input).unwrap();
@@ -31,6 +27,17 @@ fn main() {
 
         let cmd = &parsed[0];
         let args = &parsed[1..];
+
+        let redirect_op_index = args.iter().position(|s| s == ">" || s == "1>");
+
+
+        // let path_after_op = if let Some(idx) = redirect_op_index {
+        //     Some(&args[idx..])
+        // } else {
+        //     None
+        // };
+
+
 
         if cmd == "exit" {
             break;
@@ -54,6 +61,7 @@ fn main() {
             if args.is_empty() {
                 eprintln!("type: missing argument");
             } else {
+                // assuming type command will have one only one argument. e.g. type cat, type ls, type cat ls will not work
                 let arg = &args[0];
                 if valid_commands.contains(&arg.as_str()) {
                     println!("{} is a shell builtin", arg);
@@ -64,16 +72,32 @@ fn main() {
                 }
             }
         } else if find_executable(cmd).is_some() {
-            let output = Command::new(cmd)
-                                    .args(args)
-                                    .output();
+
+            let new_args = if let Some(redirect_idx) = redirect_op_index {
+                &args[..redirect_idx]
+            } else {
+                args
+            };
+
+            let output = Command::new(cmd).args(new_args).output();
 
             match output {
                 Ok(output) => {
-                    print!("{}", String::from_utf8_lossy(&output.stdout));
-                    io::stdout().flush().unwrap();
-                },
-                Err(e) => eprintln!("{}", e)
+
+                    if let Some(idx) = redirect_op_index {
+                        // Take the path after '>' as a single token
+                        let path_token = args.get(idx + 1).expect("No path after redirection");
+
+                        // println!("path is: {path_token}");
+                        // println!("content is: {}", String::from_utf8_lossy(&output.stdout));
+
+                        fs::write(path_token.as_str(), &output.stdout).expect("Should be able to write to `/foo/tmp`");
+                    } else {
+                        print!("{}", String::from_utf8_lossy(&output.stdout));
+                        io::stdout().flush().unwrap();
+                    }
+                }
+                Err(e) => println!("{}", e),
             }
         } else if !cmd.is_empty() {
             println!("{}: command not found", cmd);
@@ -85,24 +109,22 @@ fn main() {
     }
 }
 
-
 fn find_executable(command: &str) -> Option<String> {
-      let path_var = env::var("PATH").ok()?;
+    let path_var = env::var("PATH").ok()?;
 
-      for mut file_path in env::split_paths(&path_var) {
-          file_path.push(command);
+    for mut file_path in env::split_paths(&path_var) {
+        file_path.push(command);
 
-          if Path::new(&file_path).exists() {
-              if let Ok(md) = fs::metadata(&file_path) {
-                  if (md.permissions().mode() & 0o100) != 0 {
-                      return Some(file_path.display().to_string());
-                  }
-              }
-          }
-      }
-      None
-  }
-
+        if Path::new(&file_path).exists() {
+            if let Ok(md) = fs::metadata(&file_path) {
+                if (md.permissions().mode() & 0o100) != 0 {
+                    return Some(file_path.display().to_string());
+                }
+            }
+        }
+    }
+    None
+}
 
 fn parse_command_line(input: &str) -> Vec<String> {
     let mut arguments = Vec::new();
