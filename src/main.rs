@@ -31,14 +31,6 @@ fn main() {
         let redirect_op_index = args.iter().position(|s| s == ">" || s == "1>");
 
 
-        // let path_after_op = if let Some(idx) = redirect_op_index {
-        //     Some(&args[idx..])
-        // } else {
-        //     None
-        // };
-
-
-
         if cmd == "exit" {
             break;
         } else if cmd == "cd" {
@@ -71,8 +63,18 @@ fn main() {
                     println!("{}: not found", arg);
                 }
             }
+        } else if cmd == "pwd" {
+            let path = match env::current_dir() {
+                Ok(p) => p,
+                Err(e) => {
+                    println!("Error: {}", e);
+                    return
+                },
+            };
+            println!("{}", path.display());
         } else if find_executable(cmd).is_some() {
 
+            // @TODO let Some(redirect_idx) = redirect_op_index: computed twice
             let new_args = if let Some(redirect_idx) = redirect_op_index {
                 &args[..redirect_idx]
             } else {
@@ -88,11 +90,12 @@ fn main() {
                         // Take the path after '>' as a single token
                         let path_token = args.get(idx + 1).expect("No path after redirection");
 
-                        // println!("path is: {path_token}");
-                        // println!("content is: {}", String::from_utf8_lossy(&output.stdout));
+                        fs::write(path_token.as_str(), &output.stdout).expect("Failed to write to file");
 
-                        fs::write(path_token.as_str(), &output.stdout).expect("Should be able to write to `/foo/tmp`");
+                        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+
                     } else {
+                        eprint!("{}", String::from_utf8_lossy(&output.stderr));
                         print!("{}", String::from_utf8_lossy(&output.stdout));
                         io::stdout().flush().unwrap();
                     }
