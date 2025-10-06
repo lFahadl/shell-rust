@@ -91,6 +91,7 @@ fn main() {
                         let operator = args.get(idx).expect("operator not found");
                         let path_token = args.get(idx + 1).expect("No path after redirection");
 
+                        // @TODO: Handle error gracefully instead of panicking where parent directory doesn't exist (e.g., mydir/file.md when mydir/ doesn't exist)
                         match operator.as_str() {
                             ">" | "1>" =>
                                         {
