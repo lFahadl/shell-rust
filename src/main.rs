@@ -110,6 +110,8 @@ fn main() {
                                     .open(path_token.as_str())
                                     .expect("Failed to open file for appending");
                                 file.write_all(&output.stdout).expect("Failed to append to file");
+
+                                eprint!("{}", String::from_utf8_lossy(&output.stderr));
                             },
                             "2>>" => {
                                 use std::fs::OpenOptions;
@@ -120,12 +122,11 @@ fn main() {
                                     .open(path_token.as_str())
                                     .expect("Failed to open file for appending");
                                 file.write_all(&output.stderr).expect("Failed to append to file");
+
+                                print!("{}", String::from_utf8_lossy(&output.stdout));
                             },
                             _ => eprintln!("Unsupported redirect operator: {}", operator),
                         };
-
-                        // print!("{}", String::from_utf8_lossy(&output.stdout));
-                        // eprint!("{}", String::from_utf8_lossy(&output.stderr));
 
                     } else {
                         eprint!("{}", String::from_utf8_lossy(&output.stderr));
