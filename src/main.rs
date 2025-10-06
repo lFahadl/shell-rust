@@ -28,7 +28,7 @@ fn main() {
         let cmd = &parsed[0];
         let args = &parsed[1..];
 
-        let redirect_op_index = args.iter().position(|s| s == ">" || s == "1>");
+        let redirect_op_index = args.iter().position(|s| s == ">" || s == "1>" || s == "2>" || s == ">>" || s == "1>>" || s == "2>>");
 
 
         if cmd == "exit" {
@@ -63,7 +63,7 @@ fn main() {
                     println!("{}: not found", arg);
                 }
             }
-        } else if cmd == "pwd" {
+        } else if cmd == "pwd" { // [Bug]: pwd executable missing in test environment
             let path = match env::current_dir() {
                 Ok(p) => p,
                 Err(e) => {
@@ -88,11 +88,44 @@ fn main() {
 
                     if let Some(idx) = redirect_op_index {
                         // Take the path after '>' as a single token
+                        let operator = args.get(idx).expect("operator not found");
                         let path_token = args.get(idx + 1).expect("No path after redirection");
 
-                        fs::write(path_token.as_str(), &output.stdout).expect("Failed to write to file");
+                        match operator.as_str() {
+                            ">" | "1>" =>
+                                        {
+                                            fs::write(path_token.as_str(), &output.stdout).expect("Failed to write to stdout");
+                                            eprint!("{}", String::from_utf8_lossy(&output.stderr));
+                                        },
+                            "2>" => {
+                                        fs::write(path_token.as_str(), &output.stderr).expect("Failed to write to stderr");
+                                        print!("{}", String::from_utf8_lossy(&output.stdout));
+                                    },
+                            ">>" | "1>>" => {
+                                use std::fs::OpenOptions;
+                                use std::io::Write;
+                                let mut file = OpenOptions::new()
+                                    .create(true)
+                                    .append(true)
+                                    .open(path_token.as_str())
+                                    .expect("Failed to open file for appending");
+                                file.write_all(&output.stdout).expect("Failed to append to file");
+                            },
+                            "2>>" => {
+                                use std::fs::OpenOptions;
+                                use std::io::Write;
+                                let mut file = OpenOptions::new()
+                                    .create(true)
+                                    .append(true)
+                                    .open(path_token.as_str())
+                                    .expect("Failed to open file for appending");
+                                file.write_all(&output.stderr).expect("Failed to append to file");
+                            },
+                            _ => eprintln!("Unsupported redirect operator: {}", operator),
+                        };
 
-                        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+                        // print!("{}", String::from_utf8_lossy(&output.stdout));
+                        // eprint!("{}", String::from_utf8_lossy(&output.stderr));
 
                     } else {
                         eprint!("{}", String::from_utf8_lossy(&output.stderr));
