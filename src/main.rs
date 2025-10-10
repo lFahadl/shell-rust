@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -13,14 +14,36 @@ use rustyline::validate::Validator;
 use rustyline::{Context, Result};
 use rustyline::{Editor, Helper};
 
-
-
-struct BuiltinCompleter {
+struct AutoCompleter {
     builtins: Vec<String>,
+    executables: HashMap<String, String>,
 }
 
-impl BuiltinCompleter {
+impl AutoCompleter {
     fn new() -> Self {
+        let mut executables_store = HashMap::new();
+        let path_var = env::var("PATH");
+
+        if path_var.is_ok() {
+            let paths = path_var.expect("cannot get paths");
+            for dir in paths.split(":") {
+
+                if !std::path::Path::new(dir).exists() {
+                    continue;
+                }
+                for entry in std::fs::read_dir(dir).unwrap() {
+                    let entry = entry.unwrap();
+                    let path = entry.path();
+                    let path_str = path.to_str().unwrap();
+                    let name = path.file_name().unwrap().to_str().unwrap();
+                    if executables_store.contains_key(name) {
+                        continue;
+                    }
+                    executables_store.insert(name.to_string(), path_str.to_string());
+                }
+            }
+        }
+
         Self {
             builtins: vec![
                 "echo".to_string(),
@@ -28,13 +51,37 @@ impl BuiltinCompleter {
                 "type".to_string(),
                 "pwd".to_string(),
             ],
+            executables: executables_store,
         }
+    }
+
+    fn autocomplete(&self, incomplete_cmd: &str) -> Vec<Pair> {
+        let mut matches = Vec::new();
+
+        for builtin in &self.builtins {
+            if builtin.starts_with(&incomplete_cmd) {
+                matches.push(Pair {
+                    display: format!("{} ", builtin.clone()),
+                    replacement: format!("{} ", builtin.clone()),
+                });
+            }
+        }
+
+        for program in self.executables.keys() {
+            if program.starts_with(&incomplete_cmd) {
+                matches.push(Pair {
+                    display: format!("{} ", program.clone()),
+                    replacement: format!("{} ", program.clone()),
+                });
+            }
+        }
+
+        matches
     }
 }
 
-
 struct MyHelper {
-    completer: BuiltinCompleter,
+    completer: AutoCompleter,
 }
 
 impl Helper for MyHelper {}
@@ -54,31 +101,19 @@ impl Completer for MyHelper {
     type Candidate = Pair;
 
     fn complete(&self, line: &str, pos: usize, _ctx: &Context<'_>) -> Result<(usize, Vec<Pair>)> {
-        // self.completer.complete(line, pos, ctx)
         let start = line[..pos].rfind(' ').map_or(0, |i| i + 1);
         let prefix = &line[start..pos];
 
-        let matches: Vec<Pair> = self
-            .completer
-            .builtins
-            .iter()
-            .filter(|cmd| cmd.starts_with(prefix))
-            .map(|cmd| Pair {
-                display: cmd.clone(),
-                replacement: format!("{} ", cmd),
-            })
-            .collect();
+        let matches = self.completer.autocomplete(prefix);
 
         Ok((start, matches))
     }
 }
 
-
-
 fn main() -> rustyline::Result<()> {
     let mut rl = Editor::new()?;
     rl.set_helper(Some(MyHelper {
-        completer: BuiltinCompleter::new(),
+        completer: AutoCompleter::new(),
     }));
 
     loop {
