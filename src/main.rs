@@ -1,35 +1,116 @@
 use std::env;
 use std::fs;
-#[allow(unused_imports)]
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
-fn main() {
-    print!("$ ");
-    io::stdout().flush().unwrap();
+use rustyline::completion::{Completer, Pair};
+use rustyline::error::ReadlineError;
+use rustyline::highlight::Highlighter;
+use rustyline::hint::Hinter;
+use rustyline::validate::Validator;
+use rustyline::{Context, Result};
+use rustyline::{Editor, Helper};
 
-    let mut input = String::new();
+
+
+struct BuiltinCompleter {
+    builtins: Vec<String>,
+}
+
+impl BuiltinCompleter {
+    fn new() -> Self {
+        Self {
+            builtins: vec![
+                "echo".to_string(),
+                "exit".to_string(),
+                "type".to_string(),
+                "pwd".to_string(),
+            ],
+        }
+    }
+}
+
+
+struct MyHelper {
+    completer: BuiltinCompleter,
+}
+
+impl Helper for MyHelper {}
+
+impl Hinter for MyHelper {
+    type Hint = String;
+    fn hint(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<String> {
+        None
+    }
+}
+
+impl Validator for MyHelper {}
+
+impl Highlighter for MyHelper {}
+
+impl Completer for MyHelper {
+    type Candidate = Pair;
+
+    fn complete(&self, line: &str, pos: usize, _ctx: &Context<'_>) -> Result<(usize, Vec<Pair>)> {
+        // self.completer.complete(line, pos, ctx)
+        let start = line[..pos].rfind(' ').map_or(0, |i| i + 1);
+        let prefix = &line[start..pos];
+
+        let matches: Vec<Pair> = self
+            .completer
+            .builtins
+            .iter()
+            .filter(|cmd| cmd.starts_with(prefix))
+            .map(|cmd| Pair {
+                display: cmd.clone(),
+                replacement: format!("{} ", cmd),
+            })
+            .collect();
+
+        Ok((start, matches))
+    }
+}
+
+
+
+fn main() -> rustyline::Result<()> {
+    let mut rl = Editor::new()?;
+    rl.set_helper(Some(MyHelper {
+        completer: BuiltinCompleter::new(),
+    }));
 
     loop {
-        io::stdin().read_line(&mut input).unwrap();
+        let readline = rl.readline("$ ");
+        let input = match readline {
+            Ok(line) => {
+                rl.add_history_entry(line.as_str())?;
+                line
+            }
+            Err(ReadlineError::Interrupted) => {
+                println!("CTRL-C");
+                break;
+            }
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break;
+            }
+        };
 
         let parsed = parse_command_line(input.trim());
         let valid_commands = ["echo", "exit", "type", "pwd"];
 
         if parsed.is_empty() {
-            print!("$ ");
-            io::stdout().flush().unwrap();
-            input.clear();
             continue;
         }
 
         let cmd = &parsed[0];
         let args = &parsed[1..];
 
-        let redirect_op_index = args.iter().position(|s| s == ">" || s == "1>" || s == "2>" || s == ">>" || s == "1>>" || s == "2>>");
-
+        let redirect_op_index = args.iter().position(|s| {
+            s == ">" || s == "1>" || s == "2>" || s == ">>" || s == "1>>" || s == "2>>"
+        });
 
         if cmd == "exit" {
             break;
@@ -63,17 +144,17 @@ fn main() {
                     println!("{}: not found", arg);
                 }
             }
-        } else if cmd == "pwd" { // [Bug]: pwd executable missing in test environment
+        } else if cmd == "pwd" {
+            // [Bug]: pwd executable missing in test environment
             let path = match env::current_dir() {
                 Ok(p) => p,
                 Err(e) => {
                     println!("Error: {}", e);
-                    return
-                },
+                    return Ok(());
+                }
             };
             println!("{}", path.display());
         } else if find_executable(cmd).is_some() {
-
             // @TODO let Some(redirect_idx) = redirect_op_index: computed twice
             let new_args = if let Some(redirect_idx) = redirect_op_index {
                 &args[..redirect_idx]
@@ -85,7 +166,6 @@ fn main() {
 
             match output {
                 Ok(output) => {
-
                     if let Some(idx) = redirect_op_index {
                         // Take the path after '>' as a single token
                         let operator = args.get(idx).expect("operator not found");
@@ -93,15 +173,16 @@ fn main() {
 
                         // @TODO: Handle error gracefully instead of panicking where parent directory doesn't exist (e.g., mydir/file.md when mydir/ doesn't exist)
                         match operator.as_str() {
-                            ">" | "1>" =>
-                                        {
-                                            fs::write(path_token.as_str(), &output.stdout).expect("Failed to write to stdout");
-                                            eprint!("{}", String::from_utf8_lossy(&output.stderr));
-                                        },
+                            ">" | "1>" => {
+                                fs::write(path_token.as_str(), &output.stdout)
+                                    .expect("Failed to write to stdout");
+                                eprint!("{}", String::from_utf8_lossy(&output.stderr));
+                            }
                             "2>" => {
-                                        fs::write(path_token.as_str(), &output.stderr).expect("Failed to write to stderr");
-                                        print!("{}", String::from_utf8_lossy(&output.stdout));
-                                    },
+                                fs::write(path_token.as_str(), &output.stderr)
+                                    .expect("Failed to write to stderr");
+                                print!("{}", String::from_utf8_lossy(&output.stdout));
+                            }
                             ">>" | "1>>" => {
                                 use std::fs::OpenOptions;
                                 use std::io::Write;
@@ -110,10 +191,11 @@ fn main() {
                                     .append(true)
                                     .open(path_token.as_str())
                                     .expect("Failed to open file for appending");
-                                file.write_all(&output.stdout).expect("Failed to append to file");
+                                file.write_all(&output.stdout)
+                                    .expect("Failed to append to file");
 
                                 eprint!("{}", String::from_utf8_lossy(&output.stderr));
-                            },
+                            }
                             "2>>" => {
                                 use std::fs::OpenOptions;
                                 use std::io::Write;
@@ -122,13 +204,13 @@ fn main() {
                                     .append(true)
                                     .open(path_token.as_str())
                                     .expect("Failed to open file for appending");
-                                file.write_all(&output.stderr).expect("Failed to append to file");
+                                file.write_all(&output.stderr)
+                                    .expect("Failed to append to file");
 
                                 print!("{}", String::from_utf8_lossy(&output.stdout));
-                            },
+                            }
                             _ => eprintln!("Unsupported redirect operator: {}", operator),
                         };
-
                     } else {
                         eprint!("{}", String::from_utf8_lossy(&output.stderr));
                         print!("{}", String::from_utf8_lossy(&output.stdout));
@@ -140,11 +222,9 @@ fn main() {
         } else if !cmd.is_empty() {
             println!("{}: command not found", cmd);
         }
-
-        print!("$ ");
-        io::stdout().flush().unwrap();
-        input.clear();
     }
+
+    Ok(())
 }
 
 fn find_executable(command: &str) -> Option<String> {
