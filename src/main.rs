@@ -6,13 +6,14 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
-use rustyline::completion::{Completer, Pair};
+use rustyline::completion::{Candidate, Completer, Pair};
+use rustyline::config::BellStyle;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
+use rustyline::{CompletionType, Config, Editor, Helper};
 use rustyline::{Context, Result};
-use rustyline::{Editor, Helper};
 
 struct AutoCompleter {
     builtins: Vec<String>,
@@ -27,7 +28,6 @@ impl AutoCompleter {
         if path_var.is_ok() {
             let paths = path_var.expect("cannot get paths");
             for dir in paths.split(":") {
-
                 if !std::path::Path::new(dir).exists() {
                     continue;
                 }
@@ -61,7 +61,7 @@ impl AutoCompleter {
         for builtin in &self.builtins {
             if builtin.starts_with(&incomplete_cmd) {
                 matches.push(Pair {
-                    display: format!("{} ", builtin.clone()),
+                    display: format!("{}", builtin.clone()),
                     replacement: format!("{} ", builtin.clone()),
                 });
             }
@@ -70,7 +70,7 @@ impl AutoCompleter {
         for program in self.executables.keys() {
             if program.starts_with(&incomplete_cmd) {
                 matches.push(Pair {
-                    display: format!("{} ", program.clone()),
+                    display: format!("{}", program.clone()),
                     replacement: format!("{} ", program.clone()),
                 });
             }
@@ -104,14 +104,21 @@ impl Completer for MyHelper {
         let start = line[..pos].rfind(' ').map_or(0, |i| i + 1);
         let prefix = &line[start..pos];
 
-        let matches = self.completer.autocomplete(prefix);
+        let mut matches = self.completer.autocomplete(prefix);
+
+        matches.sort_by(|a, b| a.display().cmp(b.display()));
 
         Ok((start, matches))
     }
 }
 
 fn main() -> rustyline::Result<()> {
-    let mut rl = Editor::new()?;
+    let config = Config::builder()
+        .completion_type(CompletionType::List)
+        .bell_style(BellStyle::Audible)
+        .build();
+
+    let mut rl = Editor::with_config(config)?;
     rl.set_helper(Some(MyHelper {
         completer: AutoCompleter::new(),
     }));
@@ -124,7 +131,6 @@ fn main() -> rustyline::Result<()> {
                 line
             }
             Err(ReadlineError::Interrupted) => {
-                println!("CTRL-C");
                 break;
             }
             Err(err) => {
