@@ -116,12 +116,15 @@ fn main() -> rustyline::Result<()> {
     let config = Config::builder()
         .completion_type(CompletionType::List)
         .bell_style(BellStyle::Audible)
+        .auto_add_history(true)
         .build();
 
     let mut rl = Editor::with_config(config)?;
     rl.set_helper(Some(MyHelper {
         completer: AutoCompleter::new(),
     }));
+
+    let mut history_cmds = Vec::<String>::new();
 
     loop {
         let readline = rl.readline("$ ");
@@ -140,7 +143,7 @@ fn main() -> rustyline::Result<()> {
         };
 
         let parsed = parse_command_line(input.trim());
-        let valid_commands = ["echo", "exit", "type", "pwd"];
+        let valid_commands = ["echo", "exit", "type", "pwd", "history"];
 
         if parsed.is_empty() {
             continue;
@@ -154,7 +157,26 @@ fn main() -> rustyline::Result<()> {
         });
 
         if cmd == "exit" {
+            history_cmds.push(cmd.to_string());
             break;
+        } else if cmd == "history" {
+            if args.len() == 1 {
+
+                let joined = args.join(" ");
+                history_cmds.push(format!("{} {}", cmd, joined));
+
+                if let Ok(idx) = args[0].parse::<usize>() {
+                    for (i, item) in history_cmds.iter().enumerate().skip(idx) {
+                        println!("   {}: {}", i + 1, item);
+                    }
+                }
+            } else {
+                history_cmds.push(cmd.to_string());
+                for (i, item) in history_cmds.iter().enumerate() {
+                    println!("    {}: {}", i + 1, item);
+                }
+            }
+
         } else if cmd == "cd" {
             let target = if args.len() > 0 && args[0] == "~" {
                 match env::var("HOME") {
@@ -171,9 +193,14 @@ fn main() -> rustyline::Result<()> {
             if let Err(_) = env::set_current_dir(&target) {
                 eprintln!("cd: {}: No such file or directory", target);
             }
+
+            let joined = args.join(" ");
+            history_cmds.push(format!("{} {}", cmd, joined));
+
         } else if cmd == "type" {
             if args.is_empty() {
                 eprintln!("type: missing argument");
+                history_cmds.push(cmd.to_string());
             } else {
                 // assuming type command will have one only one argument. e.g. type cat, type ls, type cat ls will not work
                 let arg = &args[0];
@@ -184,6 +211,10 @@ fn main() -> rustyline::Result<()> {
                 } else {
                     println!("{}: not found", arg);
                 }
+
+                // history_cmds.push(format());
+                history_cmds.push(format!("{} {}", cmd.to_string(), &args[0]));
+
             }
         } else if cmd == "pwd" {
             // [Bug]: pwd executable missing in test environment
@@ -195,6 +226,7 @@ fn main() -> rustyline::Result<()> {
                 }
             };
             println!("{}", path.display());
+            history_cmds.push(cmd.to_string());
         } else if find_executable(cmd).is_some() {
             // @TODO let Some(redirect_idx) = redirect_op_index: computed twice
             let new_args = if let Some(redirect_idx) = redirect_op_index {
@@ -260,8 +292,11 @@ fn main() -> rustyline::Result<()> {
                 }
                 Err(e) => println!("{}", e),
             }
+            let joined = args.join(" ");
+            history_cmds.push(format!("{} {}", cmd, joined));
         } else if !cmd.is_empty() {
             println!("{}: command not found", cmd);
+            history_cmds.push(format!("{}", cmd));
         }
     }
 
