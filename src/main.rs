@@ -165,8 +165,9 @@ fn main() -> rustyline::Result<()> {
                 let joined = args.join(" ");
                 history_cmds.push(format!("{} {}", cmd, joined));
 
-                if let Ok(idx) = args[0].parse::<usize>() {
-                    for (i, item) in history_cmds.iter().enumerate().skip(idx) {
+                if let Ok(n) = args[0].parse::<usize>() {
+                    let start_idx = history_cmds.len().saturating_sub(n);
+                    for (i, item) in history_cmds.iter().enumerate().skip(start_idx) {
                         println!("   {} {}", i + 1, item);
                     }
                 }
