@@ -167,13 +167,13 @@ fn main() -> rustyline::Result<()> {
 
                 if let Ok(idx) = args[0].parse::<usize>() {
                     for (i, item) in history_cmds.iter().enumerate().skip(idx) {
-                        println!("   {}: {}", i + 1, item);
+                        println!("   {} {}", i + 1, item);
                     }
                 }
             } else {
                 history_cmds.push(cmd.to_string());
                 for (i, item) in history_cmds.iter().enumerate() {
-                    println!("    {}: {}", i + 1, item);
+                    println!("    {} {}", i + 1, item);
                 }
             }
 
