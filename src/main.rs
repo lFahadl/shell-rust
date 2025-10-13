@@ -11,6 +11,7 @@ use rustyline::config::BellStyle;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
+use rustyline::history::History;
 use rustyline::validate::Validator;
 use rustyline::{CompletionType, Config, Editor, Helper};
 use rustyline::{Context, Result};
@@ -119,18 +120,21 @@ fn main() -> rustyline::Result<()> {
         .auto_add_history(true)
         .build();
 
-    let mut rl = Editor::with_config(config)?;
-    rl.set_helper(Some(MyHelper {
+    let mut editor = Editor::with_config(config)?;
+    editor.set_helper(Some(MyHelper {
         completer: AutoCompleter::new(),
     }));
 
-    let mut history_cmds = Vec::<String>::new();
+
+
+
+    let _ = editor.load_history("history.txt");
 
     loop {
-        let readline = rl.readline("$ ");
+        let readline = editor.readline("$ ");
         let input = match readline {
             Ok(line) => {
-                rl.add_history_entry(line.as_str())?;
+                editor.add_history_entry(line.as_str())?;
                 line
             }
             Err(ReadlineError::Interrupted) => {
@@ -157,24 +161,44 @@ fn main() -> rustyline::Result<()> {
         });
 
         if cmd == "exit" {
-            history_cmds.push(cmd.to_string());
             break;
         } else if cmd == "history" {
-            if args.len() == 1 {
-
-                let joined = args.join(" ");
-                history_cmds.push(format!("{} {}", cmd, joined));
-
-                if let Ok(n) = args[0].parse::<usize>() {
-                    let start_idx = history_cmds.len().saturating_sub(n);
-                    for (i, item) in history_cmds.iter().enumerate().skip(start_idx) {
-                        println!("   {} {}", i + 1, item);
+            if args.len() >= 2 {
+                match args[0].as_str() {
+                    "-r" => {
+                        let file_path = &args[1];
+                        match editor.load_history(file_path) {
+                            Ok(_) => (),
+                            Err(e) => eprintln!("Failed to load history from {}: {}", file_path, e),
+                        }
+                    }
+                    "-w" => {
+                        let file_path = &args[1];
+                        match editor.save_history(file_path) {
+                            Ok(_) => (),
+                            Err(e) => eprintln!("Failed to save history to {}: {}", file_path, e),
+                        }
+                    }
+                    _ => {
+                        eprintln!("history: unknown option {}", args[0]);
                     }
                 }
+            } else if args.len() == 1 {
+                if let Ok(n) = args[0].parse::<usize>() {
+                    let history = editor.history();
+                    let total_len = history.len();
+                    let start_idx = total_len.saturating_sub(n);
+
+                    for (i, entry) in history.iter().enumerate().skip(start_idx) {
+                        println!("  {} {}", i + 1, entry);
+                    }
+                } else {
+                    eprintln!("history: invalid number {}", args[0]);
+                }
             } else {
-                history_cmds.push(cmd.to_string());
-                for (i, item) in history_cmds.iter().enumerate() {
-                    println!("    {} {}", i + 1, item);
+                let history = editor.history();
+                for (i, entry) in history.iter().enumerate() {
+                    println!("  {} {}", i + 1, entry);
                 }
             }
 
@@ -195,13 +219,9 @@ fn main() -> rustyline::Result<()> {
                 eprintln!("cd: {}: No such file or directory", target);
             }
 
-            let joined = args.join(" ");
-            history_cmds.push(format!("{} {}", cmd, joined));
-
         } else if cmd == "type" {
             if args.is_empty() {
                 eprintln!("type: missing argument");
-                history_cmds.push(cmd.to_string());
             } else {
                 // assuming type command will have one only one argument. e.g. type cat, type ls, type cat ls will not work
                 let arg = &args[0];
@@ -213,8 +233,6 @@ fn main() -> rustyline::Result<()> {
                     println!("{}: not found", arg);
                 }
 
-                // history_cmds.push(format());
-                history_cmds.push(format!("{} {}", cmd.to_string(), &args[0]));
 
             }
         } else if cmd == "pwd" {
@@ -227,7 +245,6 @@ fn main() -> rustyline::Result<()> {
                 }
             };
             println!("{}", path.display());
-            history_cmds.push(cmd.to_string());
         } else if find_executable(cmd).is_some() {
             // @TODO let Some(redirect_idx) = redirect_op_index: computed twice
             let new_args = if let Some(redirect_idx) = redirect_op_index {
@@ -293,11 +310,8 @@ fn main() -> rustyline::Result<()> {
                 }
                 Err(e) => println!("{}", e),
             }
-            let joined = args.join(" ");
-            history_cmds.push(format!("{} {}", cmd, joined));
         } else if !cmd.is_empty() {
             println!("{}: command not found", cmd);
-            history_cmds.push(format!("{}", cmd));
         }
     }
 
