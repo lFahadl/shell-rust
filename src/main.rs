@@ -335,6 +335,8 @@ fn main() -> rustyline::Result<()> {
         }
     }
 
+    let _ = editor.save_history(&history_file_path);
+
     Ok(())
 }
 
