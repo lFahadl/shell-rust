@@ -174,7 +174,13 @@ fn main() -> rustyline::Result<()> {
                     }
                     "-w" => {
                         let file_path = &args[1];
-                        match editor.save_history(file_path) {
+                        let history = editor.history();
+                        let mut content = String::new();
+                        for entry in history.iter() {
+                            content.push_str(entry);
+                            content.push('\n');
+                        }
+                        match fs::write(file_path, content) {
                             Ok(_) => (),
                             Err(e) => eprintln!("Failed to save history to {}: {}", file_path, e),
                         }
