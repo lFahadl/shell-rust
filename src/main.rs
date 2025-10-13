@@ -125,7 +125,15 @@ fn main() -> rustyline::Result<()> {
         completer: AutoCompleter::new(),
     }));
 
-    let _ = editor.load_history("history.txt");
+
+    let history_file_path = match env::var("HISTFILE") {
+        Ok(path) => path,
+        Err(_) => "history.txt".to_string(),
+    };
+
+    let _ = editor.load_history(&history_file_path);
+
+
 
     loop {
         let readline = editor.readline("$ ");
