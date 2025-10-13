@@ -125,9 +125,6 @@ fn main() -> rustyline::Result<()> {
         completer: AutoCompleter::new(),
     }));
 
-
-
-
     let _ = editor.load_history("history.txt");
 
     loop {
@@ -174,15 +171,28 @@ fn main() -> rustyline::Result<()> {
                     }
                     "-w" => {
                         let file_path = &args[1];
-                        let history = editor.history();
-                        let mut content = String::new();
-                        for entry in history.iter() {
-                            content.push_str(entry);
-                            content.push('\n');
-                        }
-                        match fs::write(file_path, content) {
-                            Ok(_) => (),
+
+                        match editor.save_history(file_path) {
+                            Ok(_) => {
+                                if let Ok(content) = fs::read_to_string(file_path) {
+                                    let cleaned_content = content.replace("#V2\n", "");
+                                    let _ = fs::write(file_path, cleaned_content);
+                                }
+                            }
                             Err(e) => eprintln!("Failed to save history to {}: {}", file_path, e),
+                        }
+                    }
+                    "-a" => {
+                        let file_path = &args[1];
+
+                        match editor.append_history(file_path) {
+                            Ok(_) => {
+                                if let Ok(content) = fs::read_to_string(file_path) {
+                                    let cleaned_content = content.replace("#V2\n", "");
+                                    let _ = fs::write(file_path, cleaned_content);
+                                }
+                            }
+                            Err(e) => eprintln!("Failed to append history to {}: {}", file_path, e),
                         }
                     }
                     _ => {
@@ -207,7 +217,6 @@ fn main() -> rustyline::Result<()> {
                     println!("  {} {}", i + 1, entry);
                 }
             }
-
         } else if cmd == "cd" {
             let target = if args.len() > 0 && args[0] == "~" {
                 match env::var("HOME") {
@@ -224,7 +233,6 @@ fn main() -> rustyline::Result<()> {
             if let Err(_) = env::set_current_dir(&target) {
                 eprintln!("cd: {}: No such file or directory", target);
             }
-
         } else if cmd == "type" {
             if args.is_empty() {
                 eprintln!("type: missing argument");
@@ -238,8 +246,6 @@ fn main() -> rustyline::Result<()> {
                 } else {
                     println!("{}: not found", arg);
                 }
-
-
             }
         } else if cmd == "pwd" {
             // [Bug]: pwd executable missing in test environment
