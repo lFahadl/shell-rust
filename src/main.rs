@@ -1,10 +1,12 @@
+use shlex;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::Command;
+
+use std::process::{Command, Stdio};
 
 use rustyline::completion::{Candidate, Completer, Pair};
 use rustyline::config::BellStyle;
@@ -162,7 +164,18 @@ fn main() -> rustyline::Result<()> {
             s == ">" || s == "1>" || s == "2>" || s == ">>" || s == "1>>" || s == "2>>"
         });
 
-        if cmd == "exit" {
+        // @TODO: create a single interface to execute commands
+
+        if args.contains(&"|".to_string()) {
+            let joined = parsed.join(" ");
+            let parts: Vec<&str> = joined.split('|').map(str::trim).collect();
+
+            match execute_pipeline(parts) {
+                Ok(_) => {
+                }
+                Err(e) => eprintln!("Error: {}", e),
+            }
+        } else if cmd == "exit" {
             break;
         } else if cmd == "history" {
             if args.len() >= 2 {
@@ -345,6 +358,72 @@ fn main() -> rustyline::Result<()> {
     Ok(())
 }
 
+fn execute_pipeline(commands: Vec<&str>) -> io::Result<()> {
+
+    if commands.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "No commands provided"));
+    }
+
+    let mut previous_stdout: Option<std::process::ChildStdout> = None;
+    let mut child_processes = Vec::new();
+
+    // Iterate through each command in the pipeline
+    for (i, cmd) in commands.iter().enumerate() {
+        // Parse the command and its arguments
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        if parts.is_empty() {
+            continue;
+        }
+
+        let program = parts[0];
+        let args = &parts[1..];
+
+        let mut command = Command::new(program);
+        command.args(args);
+
+        // Set stdin from the previous command's stdout
+        if let Some(stdout) = previous_stdout.take() {
+            command.stdin(Stdio::from(stdout));
+        }
+
+        // Set stdout based on whether this is the last command
+        if i == commands.len() - 1 {
+            // Last command: inherit stdout
+            command.stdout(Stdio::inherit());
+        } else {
+            // Intermediate command: pipe to next
+            command.stdout(Stdio::piped());
+        }
+
+        // Spawn the process
+        let mut child = command.spawn()?;
+
+        // Take ownership of stdout for the next iteration only if not last
+        if i < commands.len() - 1 {
+            previous_stdout = child.stdout.take();
+        }
+
+        // Store child process (we'll wait for them later)
+        child_processes.push(child);
+    }
+
+    // Get output from the last command first (but since inherited, just wait)
+    if child_processes.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::Other, "No commands executed"));
+    }
+
+    let mut last_child = child_processes.pop().unwrap();
+    last_child.wait()?;
+
+    // Clean up previous processes (kill if necessary to avoid hanging on infinite processes like tail -f)
+    for mut child in child_processes {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    Ok(())
+}
+
 fn find_executable(command: &str) -> Option<String> {
     let path_var = env::var("PATH").ok()?;
 
@@ -360,6 +439,16 @@ fn find_executable(command: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn parse_command(cmd: &str) -> Option<(String, Vec<String>)> {
+    let parts = shlex::split(cmd)?;
+    if parts.is_empty() {
+        return None;
+    }
+    let program = parts[0].clone();
+    let args = parts[1..].to_vec();
+    Some((program, args))
 }
 
 fn parse_command_line(input: &str) -> Vec<String> {
