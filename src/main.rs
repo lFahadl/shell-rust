@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use std::process::{Command, Stdio};
+use std::process::{Command, Stdio, ChildStdout};
 
 use rustyline::completion::{Candidate, Completer, Pair};
 use rustyline::config::BellStyle;
@@ -115,6 +115,62 @@ impl Completer for MyHelper {
     }
 }
 
+enum CommandType {
+    Builtin,
+    External,
+}
+
+fn classify_command(cmd: &str) -> CommandType {
+    let builtins = ["echo", "type", "pwd"];
+    if builtins.contains(&cmd) {
+        CommandType::Builtin
+    } else {
+        CommandType::External
+    }
+}
+
+fn execute_builtin(cmd: &str, args: &[String], stdin: Option<Vec<u8>>) -> io::Result<Vec<u8>> {
+    let mut output = Vec::new();
+
+    match cmd {
+        "echo" => {
+            let text = args.join(" ");
+            output.extend_from_slice(text.as_bytes());
+            output.push(b'\n');
+        }
+        "pwd" => {
+            let path = env::current_dir()?;
+            output.extend_from_slice(path.display().to_string().as_bytes());
+            output.push(b'\n');
+        }
+        "type" => {
+            if args.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "type: missing argument"));
+            }
+            let valid_commands = ["echo", "exit", "type", "pwd", "history"];
+            let arg = &args[0];
+
+            let result = if valid_commands.contains(&arg.as_str()) {
+                format!("{} is a shell builtin\n", arg)
+            } else if let Some(executable_path) = find_executable(arg) {
+                format!("{} is {}\n", arg, executable_path)
+            } else {
+                format!("{}: not found\n", arg)
+            };
+
+            output.extend_from_slice(result.as_bytes());
+        }
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Unknown builtin: {}", cmd)
+            ));
+        }
+    }
+
+    Ok(output)
+}
+
 fn main() -> rustyline::Result<()> {
     let config = Config::builder()
         .completion_type(CompletionType::List)
@@ -150,24 +206,25 @@ fn main() -> rustyline::Result<()> {
             }
         };
 
-        let parsed = parse_command_line(input.trim());
+        let parsed_opt = parse_command_line(input.trim());
         let valid_commands = ["echo", "exit", "type", "pwd", "history"];
 
-        if parsed.is_empty() {
-            continue;
-        }
+        let (cmd, args) = match parsed_opt {
+            Some((p, a)) => (p, a),
+            None => continue,
+        };
 
-        let cmd = &parsed[0];
-        let args = &parsed[1..];
-
+        let cmd_str = cmd.as_str();
         let redirect_op_index = args.iter().position(|s| {
             s == ">" || s == "1>" || s == "2>" || s == ">>" || s == "1>>" || s == "2>>"
         });
 
-        // @TODO: create a single interface to execute commands
-
         if args.contains(&"|".to_string()) {
-            let joined = parsed.join(" ");
+            // reconstruct full command with program + args to split on '|'
+            let mut full = Vec::with_capacity(1 + args.len());
+            full.push(cmd.clone());
+            full.extend(args.clone());
+            let joined = full.join(" ");
             let parts: Vec<&str> = joined.split('|').map(str::trim).collect();
 
             match execute_pipeline(parts) {
@@ -175,9 +232,9 @@ fn main() -> rustyline::Result<()> {
                 }
                 Err(e) => eprintln!("Error: {}", e),
             }
-        } else if cmd == "exit" {
+        } else if cmd_str == "exit" {
             break;
-        } else if cmd == "history" {
+        } else if cmd_str == "history" {
             if args.len() >= 2 {
                 match args[0].as_str() {
                     "-r" => {
@@ -224,7 +281,7 @@ fn main() -> rustyline::Result<()> {
                     let start_idx = total_len.saturating_sub(n);
 
                     for (i, entry) in history.iter().enumerate().skip(start_idx) {
-                        println!("  {} {}", i + 1, entry);
+                        println!("    {}  {}", i + 1, entry);
                     }
                 } else {
                     eprintln!("history: invalid number {}", args[0]);
@@ -232,10 +289,10 @@ fn main() -> rustyline::Result<()> {
             } else {
                 let history = editor.history();
                 for (i, entry) in history.iter().enumerate() {
-                    println!("  {} {}", i + 1, entry);
+                    println!("    {}  {}", i + 1, entry);
                 }
             }
-        } else if cmd == "cd" {
+        } else if cmd_str == "cd" {
             let target = if args.len() > 0 && args[0] == "~" {
                 match env::var("HOME") {
                     Ok(h) => h,
@@ -245,17 +302,20 @@ fn main() -> rustyline::Result<()> {
                     }
                 }
             } else {
+                if args.is_empty() {
+                    eprintln!("cd: missing argument");
+                    continue;
+                }
                 args[0].to_string()
             };
 
             if let Err(_) = env::set_current_dir(&target) {
                 eprintln!("cd: {}: No such file or directory", target);
             }
-        } else if cmd == "type" {
+        } else if cmd_str == "type" {
             if args.is_empty() {
                 eprintln!("type: missing argument");
             } else {
-                // assuming type command will have one only one argument. e.g. type cat, type ls, type cat ls will not work
                 let arg = &args[0];
                 if valid_commands.contains(&arg.as_str()) {
                     println!("{} is a shell builtin", arg);
@@ -265,8 +325,7 @@ fn main() -> rustyline::Result<()> {
                     println!("{}: not found", arg);
                 }
             }
-        } else if cmd == "pwd" {
-            // [Bug]: pwd executable missing in test environment
+        } else if cmd_str == "pwd" {
             let path = match env::current_dir() {
                 Ok(p) => p,
                 Err(e) => {
@@ -275,24 +334,21 @@ fn main() -> rustyline::Result<()> {
                 }
             };
             println!("{}", path.display());
-        } else if find_executable(cmd).is_some() {
-            // @TODO let Some(redirect_idx) = redirect_op_index: computed twice
-            let new_args = if let Some(redirect_idx) = redirect_op_index {
+        } else if find_executable(cmd_str).is_some() {
+            let new_args: &[String] = if let Some(redirect_idx) = redirect_op_index {
                 &args[..redirect_idx]
             } else {
-                args
+                &args[..]
             };
 
-            let output = Command::new(cmd).args(new_args).output();
+            let output = Command::new(cmd_str).args(new_args).output();
 
             match output {
                 Ok(output) => {
                     if let Some(idx) = redirect_op_index {
-                        // Take the path after '>' as a single token
                         let operator = args.get(idx).expect("operator not found");
                         let path_token = args.get(idx + 1).expect("No path after redirection");
 
-                        // @TODO: Handle error gracefully instead of panicking where parent directory doesn't exist (e.g., mydir/file.md when mydir/ doesn't exist)
                         match operator.as_str() {
                             ">" | "1>" => {
                                 fs::write(path_token.as_str(), &output.stdout)
@@ -340,8 +396,8 @@ fn main() -> rustyline::Result<()> {
                 }
                 Err(e) => println!("{}", e),
             }
-        } else if !cmd.is_empty() {
-            println!("{}: command not found", cmd);
+        } else if !cmd_str.is_empty() {
+            println!("{}: command not found", cmd_str);
         }
     }
 
@@ -359,63 +415,100 @@ fn main() -> rustyline::Result<()> {
 }
 
 fn execute_pipeline(commands: Vec<&str>) -> io::Result<()> {
-
     if commands.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "No commands provided"));
     }
 
-    let mut previous_stdout: Option<std::process::ChildStdout> = None;
+    let mut previous_output: Option<Vec<u8>> = None;
+    let mut previous_stdout: Option<ChildStdout> = None;
     let mut child_processes = Vec::new();
 
-    // Iterate through each command in the pipeline
     for (i, cmd) in commands.iter().enumerate() {
-        // Parse the command and its arguments
         let parts: Vec<&str> = cmd.split_whitespace().collect();
         if parts.is_empty() {
             continue;
         }
 
         let program = parts[0];
-        let args = &parts[1..];
+        let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
 
-        let mut command = Command::new(program);
-        command.args(args);
+        match classify_command(program) {
+            CommandType::Builtin => {
+                // For builtins, we need to consume any previous piped output first
+                let stdin_data = if let Some(stdout) = previous_stdout.take() {
+                    // Read from the previous external command's stdout
+                    use std::io::Read;
+                    let mut buffer = Vec::new();
+                    let mut reader = stdout;
+                    reader.read_to_end(&mut buffer)?;
+                    Some(buffer)
+                } else {
+                    previous_output.take()
+                };
 
-        // Set stdin from the previous command's stdout
-        if let Some(stdout) = previous_stdout.take() {
-            command.stdin(Stdio::from(stdout));
+                let output = execute_builtin(program, &args, stdin_data)?;
+
+                if i == commands.len() - 1 {
+                    // Last command: write to stdout
+                    io::stdout().write_all(&output)?;
+                    io::stdout().flush()?;
+                } else {
+                    // Store output for next command
+                    previous_output = Some(output);
+                }
+            }
+            CommandType::External => {
+                let mut command = Command::new(program);
+                command.args(&args);
+
+                // Check what kind of input we have
+                let has_builtin_output = previous_output.is_some();
+                let has_piped_stdout = previous_stdout.is_some();
+
+                // Set stdin based on what we have
+                if has_builtin_output {
+                    // Previous command was a builtin, we'll pipe its output
+                    command.stdin(Stdio::piped());
+                } else if has_piped_stdout {
+                    // Previous command was external with piped stdout
+                    command.stdin(Stdio::from(previous_stdout.take().unwrap()));
+                }
+
+                // Set stdout
+                command.stdout(if i == commands.len() - 1 {
+                    Stdio::inherit()
+                } else {
+                    Stdio::piped()
+                });
+
+                let mut child = command.spawn()?;
+
+                // If we have buffered output from a builtin, write it to stdin
+                if has_builtin_output {
+                    let output = previous_output.take().unwrap();
+                    if let Some(mut stdin) = child.stdin.take() {
+                        stdin.write_all(&output)?;
+                        drop(stdin);
+                    }
+                }
+
+                // Store stdout for next command if not last
+                if i < commands.len() - 1 {
+                    previous_stdout = child.stdout.take();
+                }
+
+                child_processes.push(child);
+            }
         }
-
-        // Set stdout based on whether this is the last command
-        if i == commands.len() - 1 {
-            // Last command: inherit stdout
-            command.stdout(Stdio::inherit());
-        } else {
-            // Intermediate command: pipe to next
-            command.stdout(Stdio::piped());
-        }
-
-        // Spawn the process
-        let mut child = command.spawn()?;
-
-        // Take ownership of stdout for the next iteration only if not last
-        if i < commands.len() - 1 {
-            previous_stdout = child.stdout.take();
-        }
-
-        // Store child process (we'll wait for them later)
-        child_processes.push(child);
     }
 
-    // Get output from the last command first (but since inherited, just wait)
-    if child_processes.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::Other, "No commands executed"));
+    // Wait for the last process first
+    if !child_processes.is_empty() {
+        let mut last = child_processes.pop().unwrap();
+        let _ = last.wait()?;
     }
 
-    let mut last_child = child_processes.pop().unwrap();
-    last_child.wait()?;
-
-    // Clean up previous processes (kill if necessary to avoid hanging on infinite processes like tail -f)
+    // Clean up remaining processes
     for mut child in child_processes {
         let _ = child.kill();
         let _ = child.wait();
@@ -441,7 +534,7 @@ fn find_executable(command: &str) -> Option<String> {
     None
 }
 
-fn parse_command(cmd: &str) -> Option<(String, Vec<String>)> {
+fn parse_command_line(cmd: &str) -> Option<(String, Vec<String>)> {
     let parts = shlex::split(cmd)?;
     if parts.is_empty() {
         return None;
@@ -449,52 +542,4 @@ fn parse_command(cmd: &str) -> Option<(String, Vec<String>)> {
     let program = parts[0].clone();
     let args = parts[1..].to_vec();
     Some((program, args))
-}
-
-fn parse_command_line(input: &str) -> Vec<String> {
-    let mut arguments = Vec::new();
-    let mut current_arg = String::new();
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut chars = input.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == ' ' && !in_single_quote && !in_double_quote {
-            if !current_arg.is_empty() {
-                arguments.push(current_arg.clone());
-                current_arg.clear();
-            }
-        } else if ch == '\'' && !in_double_quote {
-            in_single_quote = !in_single_quote;
-        } else if ch == '"' && !in_single_quote {
-            in_double_quote = !in_double_quote;
-        } else if ch == '\\' {
-            if in_single_quote {
-                current_arg.push(ch);
-            } else if in_double_quote {
-                if let Some(&next_ch) = chars.peek() {
-                    if next_ch == '\\' || next_ch == '"' || next_ch == '$' || next_ch == '`' {
-                        chars.next();
-                        current_arg.push(next_ch);
-                    } else {
-                        current_arg.push(ch);
-                    }
-                } else {
-                    current_arg.push(ch);
-                }
-            } else {
-                if let Some(next_ch) = chars.next() {
-                    current_arg.push(next_ch);
-                }
-            }
-        } else {
-            current_arg.push(ch);
-        }
-    }
-
-    if !current_arg.is_empty() {
-        arguments.push(current_arg);
-    }
-
-    arguments
 }
