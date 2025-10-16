@@ -129,7 +129,7 @@ fn classify_command(cmd: &str) -> CommandType {
     }
 }
 
-fn execute_builtin(cmd: &str, args: &[String], stdin: Option<Vec<u8>>) -> io::Result<Vec<u8>> {
+fn execute_builtin(cmd: &str, args: &[String]) -> io::Result<Vec<u8>> {
     let mut output = Vec::new();
 
     match cmd {
@@ -434,19 +434,8 @@ fn execute_pipeline(commands: Vec<&str>) -> io::Result<()> {
 
         match classify_command(program) {
             CommandType::Builtin => {
-                // For builtins, we need to consume any previous piped output first
-                let stdin_data = if let Some(stdout) = previous_stdout.take() {
-                    // Read from the previous external command's stdout
-                    use std::io::Read;
-                    let mut buffer = Vec::new();
-                    let mut reader = stdout;
-                    reader.read_to_end(&mut buffer)?;
-                    Some(buffer)
-                } else {
-                    previous_output.take()
-                };
 
-                let output = execute_builtin(program, &args, stdin_data)?;
+                let output = execute_builtin(program, &args)?;
 
                 if i == commands.len() - 1 {
                     // Last command: write to stdout
